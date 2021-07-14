@@ -1,0 +1,171 @@
+import os
+import numpy
+import cv2
+
+"""
+This is a simplified and cleaner version of the code from:
+https://towardsdatascience.com/finding-duplicate-images-with-python-71c04ec8051
+https://github.com/elisemercury/Duplicate-Image-Finder
+
+It only uses the most common libraries and has some parts removed, like checking for rotated images. 
+I changed the code to fit more into my end goal.
+"""
+
+# Extension that you want to compare, must be supported by cv2
+valid_extensions = ['.png', '.jpeg', '.jpg']
+
+
+def mse(image_a, image_b):
+    """
+    The MSE or Mean squared error measures the average of the squares of the errors—that is, the average squared
+    difference between the estimated values and the actual value.
+
+    Read more on: https://en.wikipedia.org/wiki/Mean_squared_error
+
+    :param image_a: The first image.
+    :param image_b: The second image.
+    :return: The error value. The higher the value, the more difference is between the pictures.
+    """
+    err = numpy.sum((image_a.astype("float") - image_b.astype("float")) ** 2)
+    err /= float(image_a.shape[0] * image_a.shape[1])
+    return err
+
+
+class DuplicateFinder:
+    def __init__(self, directory: str, max_mse: int = 200, compression: int = 50):
+        """
+        The initialization function.
+        :param directory: A string of the directory with the images
+        :param max_mse: Max MSE error value that is still considered the same picture.
+        :param compression: Compression in px to which the images are resized to.
+        :return:
+        """
+        self.search_dir = directory
+        self.compression_px = compression
+        self.max_mse_value = max_mse
+
+        self.image_files = []
+        self.matrix_array = None
+
+        # list where the found duplicate/similar images are stored
+        self.duplicates = []
+        self.lower_res = []
+
+    def run(self):
+        """
+        First creates the image matrices, then checks them for duplicates with the MSE function.
+        :return:
+        """
+        self.create_image_matrix_array()
+
+        self.check_for_dups()
+
+    def create_image_matrix_array(self):
+        """
+        Scales down the images and turns them into RGB tensors.
+        :return:
+        """
+        # Get all files of folder
+        files_in_dir = [filename for filename in os.listdir(self.search_dir)]
+
+        counter = 0
+
+        for filename in files_in_dir:
+            # check if not a directory
+            if not os.path.isdir(self.search_dir + filename):
+                # Get extension of file
+                name, extension = os.path.splitext(filename)
+
+                # check if it is a valid extension, not in a AND statement for speed
+                if extension in valid_extensions:
+
+                    # Decode into the 3 RGB matrices
+                    img = cv2.imdecode(numpy.fromfile(self.search_dir + filename, dtype=numpy.uint8)
+                                       , cv2.IMREAD_UNCHANGED)
+                    if type(img) == numpy.ndarray:
+                        img = img[..., 0:3]
+
+                        # Resize for less calculations
+                        img = cv2.resize(img, dsize=(self.compression_px, self.compression_px)
+                                         , interpolation=cv2.INTER_CUBIC)
+
+                        # Save in array
+                        if counter == 0:
+                            self.matrix_array = img
+                            self.image_files.append(filename)
+                            counter += 1
+                        else:
+                            self.matrix_array = numpy.concatenate((self.matrix_array, img))
+                            self.image_files.append(filename)
+
+    def show_file_info(self, compared_img, main_img):
+        """
+        Prints the duplicates that are found.
+        :return:
+        """
+        print("Duplicate file: " + self.image_files[main_img] + " and " + self.image_files[compared_img])
+
+    def check_for_dups(self):
+        """
+        Compares the images that are in the folder.
+        :return:
+        """
+        main_img = 0
+        compared_img = 1
+        n_rows, n_cols = self.compression_px, self.compression_px
+        s_row_a = 0
+        e_row_a = n_rows
+        s_row_b = e_row_a
+        e_row_b = s_row_b + n_rows
+
+        while e_row_b <= self.matrix_array.shape[0]:
+            while compared_img < (len(self.image_files)):
+                # select two images from imgs_matrix
+                img_a = self.matrix_array[s_row_a: e_row_a,  # rows
+                                    0: n_cols]  # columns
+                img_b = self.matrix_array[s_row_b: e_row_b,  # rows
+                                    0: n_cols]  # columns
+                # compare the images
+                mse_value = mse(img_a, img_b)
+                if mse_value < self.max_mse_value:
+                    self.show_file_info(compared_img, main_img)
+                    self.duplicates.append(self.image_files[main_img])
+                    self.check_img_quality(main_img, compared_img)
+                s_row_b += n_rows
+                e_row_b += n_rows
+                compared_img += 1
+
+            s_row_a += n_rows
+            e_row_a += n_rows
+            s_row_b = e_row_a
+            e_row_b = s_row_b + n_rows
+            main_img += 1
+            compared_img = main_img + 1
+
+        lower_res_names = []
+        for lower_res_img in self.lower_res:
+            lower_res_names.append(self.image_files[lower_res_img])
+
+        print(f'***\n'
+              f'DONE: found {len(self.duplicates)} duplicate image pairs in {len(self.image_files)} total images.\n'
+              f'The following files have lower resolution:\n'
+              f'{lower_res_names}')
+
+    def check_img_quality(self, image_a, image_b):
+        """
+        Compares the images qualities and saves the ones that are lower quality.
+        :param image_a: The first image.
+        :param image_b: The second image.
+        :return:
+        """
+        size_img_a = os.stat(self.search_dir + self.image_files[image_a]).st_size
+        size_img_b = os.stat(self.search_dir + self.image_files[image_b]).st_size
+        if size_img_a > size_img_b:
+            self.lower_res(image_b)
+        else:
+            self.lower_res.append(image_a)
+
+
+if __name__ == '__main__':
+    finder = DuplicateFinder('/Users/myUser/Images/', 200, 50)
+    finder.run()
