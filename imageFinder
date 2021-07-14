@@ -95,7 +95,10 @@ class DuplicateFinder:
                             self.image_files.append(filename)
                             counter += 1
                         else:
-                            self.matrix_array = numpy.concatenate((self.matrix_array, img))
+                            try:
+                                self.matrix_array = numpy.concatenate((self.matrix_array, img))
+                            except ValueError:
+                                print(f'Error on Image: {filename}')
                             self.image_files.append(filename)
 
     def show_file_info(self, compared_img, main_img):
@@ -161,7 +164,7 @@ class DuplicateFinder:
         size_img_a = os.stat(self.search_dir + self.image_files[image_a]).st_size
         size_img_b = os.stat(self.search_dir + self.image_files[image_b]).st_size
         if size_img_a > size_img_b:
-            self.lower_res(image_b)
+            self.lower_res.append(image_b)
         else:
             self.lower_res.append(image_a)
 
